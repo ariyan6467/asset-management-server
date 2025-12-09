@@ -41,6 +41,7 @@ async function run() {
     const userCollection = db.collection("users");
     const packageCollection = db.collection("package_collection");
     const assetCollection = db.collection("asset_collection");
+    const requestCollection = db.collection("request_collection");
 
     // user handling Api's
     app.post("/users", async (req, res) => {
@@ -148,7 +149,7 @@ async function run() {
             $set: {
               packageLimit: newPackageLimit,
 
-              subscription:session.metadata.name,
+              subscription: session.metadata.name,
             },
           };
 
@@ -165,9 +166,9 @@ async function run() {
       }
     });
 
- //add asset to asset collection
-  app.post("/add-asset",async(req,res)=> {
-          const asset = req.body;
+    //add asset to asset collection
+    app.post("/add-asset", async (req, res) => {
+      const asset = req.body;
       try {
         asset.dataAdded = new Date();
         const productName = asset.productName;
@@ -181,7 +182,41 @@ async function run() {
         console.error("Error inserting user:", error); // Log the error for debugging
         return res.status(500).send({ message: "Internal Server Error" });
       }
-  })
+    });
+
+    //get asset from asset collection
+    app.get("/asset-list", async (req, res) => {
+      const result = await assetCollection
+        .find()
+        .sort({
+          dataAdded: -1,
+        })
+        .toArray();
+      res.send(result);
+    });
+
+    //submit request into request collection
+    app.post("/add-request", async (req, res) => {
+      const request = req.body;
+      try {
+        request.requestDate = new Date();
+        request.approvalDate = null;
+        request.requestStatus = "pending";
+        request.note = "Please wait ,HR will approve soon";
+
+        const result = await requestCollection.insertOne(request);
+        return res.status(201).send(request);
+      } catch (error) {
+        console.error("Error inserting user:", error); // Log the error for debugging
+        return res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
+    //get requested data
+    app.get("/all-request", async (req, res) => {
+      const result = await requestCollection.find().sort({ requestDate:-1}).toArray();
+      res.send(result);
+    });
 
     app.listen(4242, () => console.log("Running on port 4242"));
 
