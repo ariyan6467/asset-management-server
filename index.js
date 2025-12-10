@@ -214,9 +214,27 @@ async function run() {
 
     //get requested data
     app.get("/all-request", async (req, res) => {
-      const result = await requestCollection.find().sort({ requestDate:-1}).toArray();
+      const request = req.body
+      
+      const filter = {requestStatus:"pending"};
+      const result = await requestCollection.find(filter).sort({ requestDate:-1}).toArray();
       res.send(result);
     });
+
+//request update
+app.patch("/update-request/:assetId",async(req,res)=> {
+  const assetId = req.params.assetId;
+  const requestStatus = req.body.requestStatus;
+  const filter = {assetId};
+  const updateDocs = {
+    $set: {
+      requestStatus:requestStatus,
+    }
+   
+  }
+   const result =await requestCollection.updateOne(filter,updateDocs);
+   res.send(result);
+})
 
     app.listen(4242, () => console.log("Running on port 4242"));
 
