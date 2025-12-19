@@ -9,9 +9,34 @@ const corsOptions = {
   methods: "GET,POST,PATCH", // Allow necessary HTTP methods
 };
 
+const admin = require("firebase-admin");
+
+const serviceAccount = require("./asset-management-firebase-adminsdk-fbsvc-bca4018068.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
 app.use(cors(corsOptions));
 app.use(express.json());
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+
+const verifyFbToken = async (req, res, next) => {
+  const token = req.headers.authorization;
+  if (!token) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+
+  try {
+    const idToken = token.split(" ")[1];
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    console.log("decoded token", decoded);
+    req.decoded_email = decoded.email;
+    next();
+  } catch (err) {
+    return res.send({ message: "unauthorized access" });
+  }
+};
 
 // Check if environment variables are set
 if (!process.env.DB_USER || !process.env.DB_PASS) {
@@ -42,7 +67,20 @@ async function run() {
     const packageCollection = db.collection("package_collection");
     const assetCollection = db.collection("asset_collection");
     const requestCollection = db.collection("request_collection");
+    const paymentCollection = db.collection("payment_collection");
+    const affiliationCollection = db.collection("employee_affiliation");
+    const assignedAssetCollection = db.collection("employee_assigned_asset");
+    //verify token
 
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded_email;
+      const filter = { email };
+      const user = await userCollection.findOne(filter);
+      if (!user || user?.userRole !== "HR Manager") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
     // user handling Api's
     app.post("/users", async (req, res) => {
       const user = req.body;
@@ -74,7 +112,7 @@ async function run() {
 
     app.post("/create-checkout-session", async (req, res) => {
       const paymentInfo = req.body;
-      const amount = parseInt(paymentInfo.price) * 120;
+      const amount = parseInt(paymentInfo.price) * 100;
       const session = await stripe.checkout.sessions.create({
         line_items: [
           {
@@ -153,8 +191,31 @@ async function run() {
             },
           };
 
+          //prevent duplicate
+          const transactionId = session.payment_intent;
+          const query = { transactionId: transactionId };
+          const paymentExist = await paymentCollection.findOne(query);
+          if (paymentExist) {
+            return res.send({ message: "payment already done", transactionId });
+          }
           const result = await userCollection.updateOne(filter, update);
-          return res.send({ success: true, result });
+
+          //create payment history
+          const paymentHistory = {
+            hrEmail: session.customer_email,
+            packageName: session.metadata.name,
+            employeeLimit: session.metadata.employeeLimit,
+            amount: session.amount_total,
+            transactionId: session.payment_intent,
+            paymentDate: new Date(),
+            status: session.payment_status,
+          };
+
+          const resultPayment = await paymentCollection.insertOne(
+            paymentHistory
+          );
+
+          return res.send({ success: true, result, resultPayment });
         }
 
         res.send({ success: false });
@@ -166,6 +227,8 @@ async function run() {
       }
     });
 
+
+
     //add asset to asset collection
     app.post("/add-asset", async (req, res) => {
       const asset = req.body;
@@ -173,9 +236,9 @@ async function run() {
         asset.dataAdded = new Date();
         const productName = asset.productName;
         const userExist = await assetCollection.findOne({ productName });
-        if (userExist) {
-          return res.status(400).send({ message: "product already exists" });
-        }
+        // if (userExist) {
+        //   return res.status(400).send({ message: "product already exists" });
+        // }
         const result = await assetCollection.insertOne(asset);
         return res.status(201).send(asset);
       } catch (error) {
@@ -186,6 +249,7 @@ async function run() {
 
     //get asset from asset collection
     app.get("/asset-list", async (req, res) => {
+      console.log("headers", req.headers);
       const result = await assetCollection
         .find()
         .sort({
@@ -213,28 +277,175 @@ async function run() {
     });
 
     //get requested data
-    app.get("/all-request", async (req, res) => {
-      const request = req.body
-      
-      const filter = {requestStatus:"pending"};
-      const result = await requestCollection.find(filter).sort({ requestDate:-1}).toArray();
+    app.get("/all-request/:email", async (req, res) => {
+      const request = req.body;
+      const email = req.params.email;
+      // if (email !== req.decoded_email) {
+      //   return res.status(403).send({ message: "forbidden" });
+      // }
+      const filter = { hrEmail: email };
+      const result = await requestCollection
+        .find(filter)
+        .sort({ requestDate: -1 })
+        .toArray();
+      res.send(result);
+    });
+    //get use by role
+    app.get("/user-role/:email/role", async (req, res) => {
+      const request = req.body;
+      const email = req.params.email;
+
+      const filter = { email: email };
+      const user = await userCollection.findOne(filter);
+
+      res.send({ role: user?.role });
+    });
+
+    //request update
+    app.patch("/update-request/:id", async (req, res) => {
+      const id = req.params.id;
+      const assetId = req.body.assetId;
+      const requestStatus = req.body.requestStatus;
+      const filter = { _id: new ObjectId(id) };
+     let secResult = null;
+      const updateDocs = {
+        $set: {
+          requestStatus: requestStatus,
+        },
+      };
+
+      const result = await requestCollection.updateOne(filter, updateDocs);
+
+      if (requestStatus === "approved") {
+        const assetId = req.body.assetId;
+        if (!assetId) {
+          return res.status(400).send({ message: "Asset ID is required" });
+        }
+
+        try {
+          const objectId = new ObjectId(assetId);
+          const secFilter = { _id: objectId };
+         
+         
+         
+         
+          // Ensure the availableQuantity is a number before performing the increment
+          const asset = await assetCollection.findOne(secFilter);
+          // console.log("asset found", asset);
+          if (asset) {
+            const availableQuantity = parseInt(asset.availableQuantity, 10); // Convert to integer
+            if (isNaN(availableQuantity)) {
+              return res
+                .status(400)
+                .send({ message: "Invalid availableQuantity" });
+            }
+
+            const secUpdateDocs = {
+              $set: { availableQuantity: availableQuantity - 1 }, // Decrease the quantity by 1
+            };
+
+            secResult = await assetCollection.updateOne(
+              secFilter,
+              secUpdateDocs
+            );
+          //  console.log("Asset updated successfully:", secResult);
+            // res.send({ message: "Asset updated successfully", secResult });
+          } else {
+            return res.status(404).send({ message: "Asset not found" });
+          }
+        } catch (err) {
+          console.error("Error updating asset:", err);
+          return res.status(500).send({ message: "Error updating asset" });
+        }
+         const employeeEmail = req.body.employeeEmail;
+         const employeeFilter = { employeeEmail: employeeEmail };
+          const employeeExist = await affiliationCollection.findOne(
+            employeeFilter
+          );
+        //add to affiliation list
+        
+ console.log("nahian");
+    //add to employee asset  list
+        const assignedAssetData = {
+          employeeEmail: req.body.employeeEmail,
+          employeeName: req.body.employeeName,
+          hrEmail: req.body.hrEmail,
+          companyName: req.body.companyName,
+          assetId: assetId,
+          assetName: req.body.assetName,
+          assignedDate: new Date(),
+          status: "assigned",
+          assetType: req.body.assetType,
+          returnDate: null,
+          companyLogo: req.body.companyLogo,
+          productImage: req.body.productImage,
+          requestDate: req.body.requestDate,
+          
+        };
+        const assignedAssetResult = await assignedAssetCollection.insertOne(
+          assignedAssetData
+        );
+      if (employeeExist) {
+            //  res.status(400).send({
+            //   message: "Employee email already exists in our affiliation list",
+             
+            // });
+
+            return res.send(result,{ message: "Asset updated successfully", secResult });
+          } else {
+            const affiliationData = {
+              employeeEmail: req.body.employeeEmail,
+              employeeName: req.body.employeeName,
+              hrEmail: req.body.hrEmail,
+              companyName: req.body.companyName,
+              affiliationDate: new Date(),
+              status: "active",
+               companyLogo: req.body.companyLogo,
+            };
+            const affiliationResult = await affiliationCollection.insertOne(
+              affiliationData
+            );
+          }
+      }
+
+      res.send(result,{ message: "Asset updated successfully", secResult });
+    });
+
+
+     //get current user assigned asset
+     app.get("/assigned-asset/:employeeEmail", async (req, res) => {
+      const employeeEmail = req.params.employeeEmail;
+      const filter = { employeeEmail };
+      const result = await assignedAssetCollection
+        .find(filter)
+        .sort({ assignedDate: -1 })
+        .toArray();
       res.send(result);
     });
 
-//request update
-app.patch("/update-request/:assetId",async(req,res)=> {
-  const assetId = req.params.assetId;
-  const requestStatus = req.body.requestStatus;
-  const filter = {assetId};
-  const updateDocs = {
-    $set: {
-      requestStatus:requestStatus,
-    }
-   
-  }
-   const result =await requestCollection.updateOne(filter,updateDocs);
-   res.send(result);
-})
+
+    //My Team assigned asset
+    app.get("/my-team", async (req, res) => {
+     
+      const result = await affiliationCollection
+        .find()
+        .sort({ affiliationDate: -1 })
+        .toArray();
+      res.send(result);
+    });
+
+  
+    //get all assets for pie chart
+    app.get("/all-assets", async (req, res) => {
+      const result = await assetCollection.find().toArray();
+      res.send(result);
+    });
+
+    //get all requests for bar chart
+    app.get("/all-requests", async (req, res) => {
+      const result = await requestCollection.find().toArray();
+      res.send(result);
+    });
 
     app.listen(4242, () => console.log("Running on port 4242"));
 
@@ -249,7 +460,7 @@ app.patch("/update-request/:assetId",async(req,res)=> {
 run().catch(console.dir);
 
 app.get("/", (req, res) => {
-  res.send("Hello World!");
+  res.send(" World!");
 });
 
 app.listen(port, () => {
