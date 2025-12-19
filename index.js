@@ -6,7 +6,7 @@ const port = process.env.PORT || 3000;
 const stripe = require("stripe")(process.env.DB_PAYMENT_STRIPE_SECRET);
 const corsOptions = {
   origin: "http://localhost:5173", // Allow only requests from this origin
-  methods: "GET,POST,PATCH", // Allow necessary HTTP methods
+  methods: "GET,POST,PATCH,DELETE", // Allow necessary HTTP methods
 };
 
 const admin = require("firebase-admin");
@@ -435,6 +435,46 @@ async function run() {
     });
 
   
+  //my employee 
+    app.get("/employee/:hrEmail", async (req, res) => {
+      const hrEmail = req.params.hrEmail;
+      const filter = { hrEmail };
+      const result = await affiliationCollection
+        .find(filter)
+        .sort({ affiliationDate: -1 })
+        .toArray();
+      res.send(result);
+    });
+
+  //remove employee from affiliation
+    app.delete("/remove-employee/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const filter = { _id: new ObjectId(id) };
+        const result = await affiliationCollection.deleteOne(filter);
+        
+        if (result.deletedCount === 1) {
+          return res.status(200).send({ 
+            success: true, 
+            message: "Employee removed successfully",
+            deletedCount: result.deletedCount 
+          });
+        } else {
+          return res.status(404).send({ 
+            success: false, 
+            message: "Employee not found",
+            deletedCount: result.deletedCount 
+          });
+        }
+      } catch (error) {
+        console.error("Error deleting employee:", error);
+        return res.status(500).send({ 
+          success: false, 
+          message: "Internal server error" 
+        });
+      }
+    });
+
     //get all assets for pie chart
     app.get("/all-assets", async (req, res) => {
       const result = await assetCollection.find().toArray();
