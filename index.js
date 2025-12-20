@@ -231,10 +231,10 @@ async function run() {
             paymentHistory
           );
 
-          return res.send({ success: true, result, resultPayment });
+          // return res.send({ success: true, result, resultPayment });
         }
 
-        res.send({ success: false });
+        // res.send({ success: false });
       } catch (error) {
         console.error("Error processing payment:", error);
         res
@@ -242,6 +242,19 @@ async function run() {
           .send({ success: false, message: "Internal Server Error" });
       }
     });
+
+ //get payment history
+    app.get("/payment-history/:hrEmail",verifyFbToken,verifyHR, async (req, res) => {
+      const email = req.params.hrEmail;
+      const filter = { hrEmail: email };
+      const result = await paymentCollection
+        .find(filter)
+        .sort({ paymentDate: -1 })
+        .toArray();
+      res.send(result);
+    });
+
+
 
     //add asset to asset collection
     app.post("/add-asset",verifyFbToken,verifyHR, async (req, res) => {
