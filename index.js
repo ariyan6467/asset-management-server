@@ -32,8 +32,9 @@ const verifyFbToken = async (req, res, next) => {
     const idToken = token.split(" ")[1];
     const decoded = await admin.auth().verifyIdToken(idToken);
 
-    req.decoded_email = decoded.email;
-    console.log("decoded  token", req.decoded_email);
+    console.log("Decoded Token", decoded);  // Log the decoded token to see if email exists
+    req.decoded_email = decoded.email;  // Extract the email and attach to request
+    console.log("Decoded email in verifyFbToken:", req.decoded_email);
     next();
   } catch (err) {
     return res.status(401).send({ message: "unauthorized access" });
@@ -73,14 +74,26 @@ async function run() {
     const affiliationCollection = db.collection("employee_affiliation");
     const assignedAssetCollection = db.collection("employee_assigned_asset");
     //verify token
-    const verifyAdmin = async (req, res, next) => {
+    const verifyHR = async (req, res, next) => {
       const email = req.decoded_email;
-      // console.log("email inside verifyAdmin", email);
+      console.log("email inside verifyHR", email);
       const filter = { email };
       const user = await userCollection.findOne(filter);
       if (!user || user?.role !== "HR Manager") {
         return res.status(403).send({ message: "forbidden access" });
       }
+    
+      next();
+    };
+    const verifyEmployee = async (req, res, next) => {
+      const email = req.decoded_email;
+      console.log("email inside verifyEmployee", email);
+      const filter = { email };
+      const user = await userCollection.findOne(filter);
+      if (!user || user?.role !== "Employee") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+    
       next();
     };
 
@@ -103,7 +116,7 @@ async function run() {
     });
 
     //get all package collection
-    app.get("/packages", async (req, res) => {
+    app.get("/packages",verifyFbToken,verifyHR, async (req, res) => {
       const result = await packageCollection
         .find()
         .sort({ employeeLimit: -1 })
@@ -113,7 +126,7 @@ async function run() {
 
     //STRIPE PAY  MENT RELATED API
 
-    app.post("/create-checkout-session", async (req, res) => {
+    app.post("/create-checkout-session",verifyFbToken,verifyHR, async (req, res) => {
       const paymentInfo = req.body;
       const amount = parseInt(paymentInfo.price) * 100;
       const session = await stripe.checkout.sessions.create({
@@ -145,7 +158,7 @@ async function run() {
       res.send({ url: session.url });
     });
     //after payment success what i wanna  update
-    app.patch("/package-payment-successful", async (req, res) => {
+    app.patch("/package-payment-successful",verifyFbToken,verifyHR, async (req, res) => {
       try {
         const sessionId = req.query.session_id;
         if (!sessionId) {
@@ -231,7 +244,7 @@ async function run() {
     });
 
     //add asset to asset collection
-    app.post("/add-asset", async (req, res) => {
+    app.post("/add-asset",verifyFbToken,verifyHR, async (req, res) => {
       const asset = req.body;
       try {
         asset.dataAdded = new Date();
@@ -249,7 +262,7 @@ async function run() {
     });
 
     //get asset from asset collection
-    app.get("/asset-list", verifyFbToken, async (req, res) => {
+    app.get("/asset-list", verifyFbToken,async (req, res) => {
       // console.log("headers", req.headers);
       const result = await assetCollection
         .find()
@@ -261,7 +274,7 @@ async function run() {
     });
 
     //submit request into request collection
-    app.post("/add-request", async (req, res) => {
+    app.post("/add-request",verifyFbToken,verifyEmployee, async (req, res) => {
       const request = req.body;
       try {
         request.requestDate = new Date();
@@ -303,7 +316,7 @@ async function run() {
     });
 
     //request update
-    app.patch("/update-request/:id", async (req, res) => {
+    app.patch("/update-request/:id",verifyFbToken,verifyHR, async (req, res) => {
       const id = req.params.id;
       const assetId = req.body.assetId;
       const requestStatus = req.body.requestStatus;
@@ -411,8 +424,8 @@ async function run() {
       res.send(result, { message: "Asset updated successfully", secResult });
     });
 
-    //get current user assigned asset
-    app.get("/assigned-asset/:employeeEmail", async (req, res) => {
+    //get current user assigned asset(employee)
+    app.get("/assigned-asset/:employeeEmail",verifyFbToken,verifyEmployee, async (req, res) => {
       const employeeEmail = req.params.employeeEmail;
       const filter = { employeeEmail };
       const result = await assignedAssetCollection
@@ -422,8 +435,8 @@ async function run() {
       res.send(result);
     });
 
-    //My Team assigned asset
-    app.get("/my-team", async (req, res) => {
+    //My Team assigned asset(employee)
+    app.get("/my-team",verifyFbToken,verifyEmployee, async (req, res) => {
       const result = await affiliationCollection
         .find()
         .sort({ affiliationDate: -1 })
@@ -432,7 +445,7 @@ async function run() {
     });
 
     //my employee
-    app.get("/employee/:hrEmail",verifyFbToken, async (req, res) => {
+    app.get("/employee/:hrEmail",verifyFbToken,verifyHR, async (req, res) => {
       // console.log("headers", req.headers);
       const hrEmail = req.params.hrEmail;
       const filter = { hrEmail };
@@ -448,7 +461,7 @@ async function run() {
     });
 
     //remove employee from affiliation
-    app.delete("/remove-employee/:id", async (req, res) => {
+    app.delete("/remove-employee/:id",verifyFbToken,verifyHR, async (req, res) => {
       try {
         const id = req.params.id;
         const filter = { _id: new ObjectId(id) };
@@ -477,7 +490,7 @@ async function run() {
     });
 
     //get all assets for pie chart
-    app.get("/all-assets", async (req, res) => {
+    app.get("/all-assets",verifyFbToken,async (req, res) => {
       const result = await assetCollection.find().toArray();
       res.send(result);
     });
