@@ -23,6 +23,7 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 const verifyFbToken = async (req, res, next) => {
   const token = req.headers.authorization;
+  console.log("token inside verifyFbToken", token);
   if (!token) {
     return res.status(401).send({ message: "unauthorized access" });
   }
@@ -30,11 +31,12 @@ const verifyFbToken = async (req, res, next) => {
   try {
     const idToken = token.split(" ")[1];
     const decoded = await admin.auth().verifyIdToken(idToken);
-    console.log("decoded token", decoded);
+
     req.decoded_email = decoded.email;
+    console.log("decoded  token", req.decoded_email);
     next();
   } catch (err) {
-    return res.send({ message: "unauthorized access" });
+    return res.status(401).send({ message: "unauthorized access" });
   }
 };
 
@@ -71,16 +73,17 @@ async function run() {
     const affiliationCollection = db.collection("employee_affiliation");
     const assignedAssetCollection = db.collection("employee_assigned_asset");
     //verify token
-
     const verifyAdmin = async (req, res, next) => {
       const email = req.decoded_email;
+      // console.log("email inside verifyAdmin", email);
       const filter = { email };
       const user = await userCollection.findOne(filter);
-      if (!user || user?.userRole !== "HR Manager") {
+      if (!user || user?.role !== "HR Manager") {
         return res.status(403).send({ message: "forbidden access" });
       }
       next();
     };
+
     // user handling Api's
     app.post("/users", async (req, res) => {
       const user = req.body;
@@ -108,7 +111,7 @@ async function run() {
       res.send(result);
     });
 
-    //STRIPE PAYMENT RELATED API
+    //STRIPE PAY  MENT RELATED API
 
     app.post("/create-checkout-session", async (req, res) => {
       const paymentInfo = req.body;
@@ -227,8 +230,6 @@ async function run() {
       }
     });
 
-
-
     //add asset to asset collection
     app.post("/add-asset", async (req, res) => {
       const asset = req.body;
@@ -248,8 +249,8 @@ async function run() {
     });
 
     //get asset from asset collection
-    app.get("/asset-list", async (req, res) => {
-      console.log("headers", req.headers);
+    app.get("/asset-list", verifyFbToken, async (req, res) => {
+      // console.log("headers", req.headers);
       const result = await assetCollection
         .find()
         .sort({
@@ -277,11 +278,11 @@ async function run() {
     });
 
     //get requested data
-    app.get("/all-request/:email", async (req, res) => {
+    app.get("/all-request/:email",verifyFbToken, async (req, res) => {
       const request = req.body;
       const email = req.params.email;
       // if (email !== req.decoded_email) {
-      //   return res.status(403).send({ message: "forbidden" });
+      //   return res.status(403).send({ message: "kuttar bacha" });
       // }
       const filter = { hrEmail: email };
       const result = await requestCollection
@@ -307,7 +308,7 @@ async function run() {
       const assetId = req.body.assetId;
       const requestStatus = req.body.requestStatus;
       const filter = { _id: new ObjectId(id) };
-     let secResult = null;
+      let secResult = null;
       const updateDocs = {
         $set: {
           requestStatus: requestStatus,
@@ -325,10 +326,7 @@ async function run() {
         try {
           const objectId = new ObjectId(assetId);
           const secFilter = { _id: objectId };
-         
-         
-         
-         
+
           // Ensure the availableQuantity is a number before performing the increment
           const asset = await assetCollection.findOne(secFilter);
           // console.log("asset found", asset);
@@ -348,7 +346,7 @@ async function run() {
               secFilter,
               secUpdateDocs
             );
-          //  console.log("Asset updated successfully:", secResult);
+            //  console.log("Asset updated successfully:", secResult);
             // res.send({ message: "Asset updated successfully", secResult });
           } else {
             return res.status(404).send({ message: "Asset not found" });
@@ -357,15 +355,15 @@ async function run() {
           console.error("Error updating asset:", err);
           return res.status(500).send({ message: "Error updating asset" });
         }
-         const employeeEmail = req.body.employeeEmail;
-         const employeeFilter = { employeeEmail: employeeEmail };
-          const employeeExist = await affiliationCollection.findOne(
-            employeeFilter
-          );
+        const employeeEmail = req.body.employeeEmail;
+        const employeeFilter = { employeeEmail: employeeEmail };
+        const employeeExist = await affiliationCollection.findOne(
+          employeeFilter
+        );
         //add to affiliation list
-        
- console.log("nahian");
-    //add to employee asset  list
+
+        console.log("nahian");
+        //add to employee asset  list
         const assignedAssetData = {
           employeeEmail: req.body.employeeEmail,
           employeeName: req.body.employeeName,
@@ -380,40 +378,41 @@ async function run() {
           companyLogo: req.body.companyLogo,
           productImage: req.body.productImage,
           requestDate: req.body.requestDate,
-          
         };
         const assignedAssetResult = await assignedAssetCollection.insertOne(
           assignedAssetData
         );
-      if (employeeExist) {
-            //  res.status(400).send({
-            //   message: "Employee email already exists in our affiliation list",
-             
-            // });
+        if (employeeExist) {
+          //  res.status(400).send({
+          //   message: "Employee email already exists in our affiliation list",
 
-            return res.send(result,{ message: "Asset updated successfully", secResult });
-          } else {
-            const affiliationData = {
-              employeeEmail: req.body.employeeEmail,
-              employeeName: req.body.employeeName,
-              hrEmail: req.body.hrEmail,
-              companyName: req.body.companyName,
-              affiliationDate: new Date(),
-              status: "active",
-               companyLogo: req.body.companyLogo,
-            };
-            const affiliationResult = await affiliationCollection.insertOne(
-              affiliationData
-            );
-          }
+          // });
+
+          return res.send(result, {
+            message: "Asset updated successfully",
+            secResult,
+          });
+        } else {
+          const affiliationData = {
+            employeeEmail: req.body.employeeEmail,
+            employeeName: req.body.employeeName,
+            hrEmail: req.body.hrEmail,
+            companyName: req.body.companyName,
+            affiliationDate: new Date(),
+            status: "active",
+            companyLogo: req.body.companyLogo,
+          };
+          const affiliationResult = await affiliationCollection.insertOne(
+            affiliationData
+          );
+        }
       }
 
-      res.send(result,{ message: "Asset updated successfully", secResult });
+      res.send(result, { message: "Asset updated successfully", secResult });
     });
 
-
-     //get current user assigned asset
-     app.get("/assigned-asset/:employeeEmail", async (req, res) => {
+    //get current user assigned asset
+    app.get("/assigned-asset/:employeeEmail", async (req, res) => {
       const employeeEmail = req.params.employeeEmail;
       const filter = { employeeEmail };
       const result = await assignedAssetCollection
@@ -423,10 +422,8 @@ async function run() {
       res.send(result);
     });
 
-
     //My Team assigned asset
     app.get("/my-team", async (req, res) => {
-     
       const result = await affiliationCollection
         .find()
         .sort({ affiliationDate: -1 })
@@ -434,11 +431,15 @@ async function run() {
       res.send(result);
     });
 
-  
-  //my employee 
-    app.get("/employee/:hrEmail", async (req, res) => {
+    //my employee
+    app.get("/employee/:hrEmail",verifyFbToken, async (req, res) => {
+      // console.log("headers", req.headers);
       const hrEmail = req.params.hrEmail;
       const filter = { hrEmail };
+      console.log("decoded email", req.decoded_email);
+      if (hrEmail !== req.decoded_email) {
+        return res.status(403).send({ message: "forbidden" });
+      }
       const result = await affiliationCollection
         .find(filter)
         .sort({ affiliationDate: -1 })
@@ -446,31 +447,31 @@ async function run() {
       res.send(result);
     });
 
-  //remove employee from affiliation
+    //remove employee from affiliation
     app.delete("/remove-employee/:id", async (req, res) => {
       try {
         const id = req.params.id;
         const filter = { _id: new ObjectId(id) };
         const result = await affiliationCollection.deleteOne(filter);
-        
+
         if (result.deletedCount === 1) {
-          return res.status(200).send({ 
-            success: true, 
+          return res.status(200).send({
+            success: true,
             message: "Employee removed successfully",
-            deletedCount: result.deletedCount 
+            deletedCount: result.deletedCount,
           });
         } else {
-          return res.status(404).send({ 
-            success: false, 
+          return res.status(404).send({
+            success: false,
             message: "Employee not found",
-            deletedCount: result.deletedCount 
+            deletedCount: result.deletedCount,
           });
         }
       } catch (error) {
         console.error("Error deleting employee:", error);
-        return res.status(500).send({ 
-          success: false, 
-          message: "Internal server error" 
+        return res.status(500).send({
+          success: false,
+          message: "Internal server error",
         });
       }
     });
