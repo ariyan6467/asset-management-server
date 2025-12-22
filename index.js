@@ -333,6 +333,7 @@ async function run() {
       const id = req.params.id;
       const assetId = req.body.assetId;
       const requestStatus = req.body.requestStatus;
+      const email = req.body.hrEmail;
       const filter = { _id: new ObjectId(id) };
       let secResult = null;
       const updateDocs = {
@@ -342,6 +343,15 @@ async function run() {
       };
 
       const result = await requestCollection.updateOne(filter, updateDocs);
+
+      const hrFilter = { email: email };
+      const hrUser = await userCollection.findOne(hrFilter);
+     
+       if (hrUser && hrUser.packageLimit === 0) {
+  
+    return res.status(400).send({ message: "Approval cannot proceed, packageLimit is 0" });
+  }
+
 
       if (requestStatus === "approved") {
         const assetId = req.body.assetId;
@@ -427,6 +437,7 @@ async function run() {
             affiliationDate: new Date(),
             status: "active",
             companyLogo: req.body.companyLogo,
+             productImage: req.body.productImage,
           };
           const affiliationResult = await affiliationCollection.insertOne(
             affiliationData
