@@ -11,7 +11,10 @@ const corsOptions = {
 
 const admin = require("firebase-admin");
 
-const serviceAccount = require("./asset-management-firebase-adminsdk-fbsvc-bca4018068.json");
+// const serviceAccount = require("./firebase-admin-key.json");
+
+const decoded = Buffer.from(process.env.FIREBASE_SERVER_KER, 'base64').toString('utf8')
+const serviceAccount = JSON.parse(decoded);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -64,7 +67,7 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
     const db = client.db("asset_management_db");
     const userCollection = db.collection("users");
     const packageCollection = db.collection("package_collection");
@@ -398,7 +401,7 @@ async function run() {
         );
         //add to affiliation list
 
-        console.log("nahian");
+        
         //add to employee asset  list
         const assignedAssetData = {
           employeeEmail: req.body.employeeEmail,
@@ -419,10 +422,7 @@ async function run() {
           assignedAssetData
         );
         if (employeeExist) {
-          //  res.status(400).send({
-          //   message: "Employee email already exists in our affiliation list",
-
-          // });
+         
 
           return res.send(result, {
             message: "Asset updated successfully",
@@ -530,7 +530,7 @@ async function run() {
 
     app.listen(4242, () => console.log("Running on port 4242"));
 
-    await client.db("admin").command({ ping: 1 });
+    // await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );

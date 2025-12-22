@@ -1,3 +1,4 @@
 node_modules
 .env
 asset-management-firebase-adminsdk-fbsvc-bca4018068.json
+.vercel
