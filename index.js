@@ -220,7 +220,7 @@ async function run() {
           const paymentHistory = {
             hrEmail: session.customer_email,
             packageName: session.metadata.name,
-            employeeLimit: session.metadata.employeeLimit,
+            employeeLimit: parseInt(session.metadata.employeeLimit),
             amount: session.amount_total,
             transactionId: session.payment_intent,
             paymentDate: new Date(),
