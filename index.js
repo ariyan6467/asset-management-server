@@ -474,11 +474,14 @@ async function run() {
     });
 
     //remove employee from affiliation
-    app.delete("/remove-employee/:id",verifyFbToken,verifyHR, async (req, res) => {
+    app.delete("/remove-employee/:employeeEmail",verifyFbToken,verifyHR, async (req, res) => {
       try {
-        const id = req.params.id;
-        const filter = { _id: new ObjectId(id) };
+        const employeeEmail = req.params.employeeEmail;
+        const filter = { employeeEmail };
         const result = await affiliationCollection.deleteOne(filter);
+        const assignedFilter = { employeeEmail };
+        const assignedResult = await assignedAssetCollection.deleteMany(assignedFilter);
+       
 
         if (result.deletedCount === 1) {
           return res.status(200).send({
